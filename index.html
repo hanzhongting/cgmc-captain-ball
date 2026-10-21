@@ -1298,7 +1298,7 @@
         const liveTeams = liveMatch ? [liveMatch.a, liveMatch.b] : [0, 1];
         const liveNames = liveTeams.map(teamName);
         $('#currentMatchLabel').textContent = liveMatch ? `Current match: Team ${liveNames[0]} vs Team ${liveNames[1]}` : 'Current match: Team Red vs Team Blue';
-        $('#scoreboard').innerHTML = liveTeams.map((team, i) => `<div class="score-card selected team-${liveNames[i].toLowerCase()}-score"><h3>Team ${liveNames[i]}</h3><div class="score-value">${matchScores[i] || 0}</div><div class="score-buttons"><button class="btn" data-score="${i}" data-change="-1">−1</button><button class="btn primary" data-score="${i}" data-change="1">+1</button></div></div>`).join('');
+        $('#scoreboard').innerHTML = liveTeams.map((team, i) => `<div class="score-card selected team-${liveNames[i].toLowerCase()}-score"><h3>${liveNames[i]}</h3><div class="score-value">${matchScores[i] || 0}</div><div class="score-buttons"><button class="btn" data-score="${i}" data-change="-1">−1</button><button class="btn primary" data-score="${i}" data-change="1">+1</button></div></div>`).join('');
         $$('#scoreboard [data-score]').forEach(button => button.onclick = () => {
           const i = Number(button.dataset.score);
           matchScores[i] = Math.max(0, (matchScores[i] || 0) + Number(button.dataset.change));
