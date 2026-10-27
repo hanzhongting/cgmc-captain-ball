@@ -336,6 +336,13 @@
         flex: 1
       }
 
+      .player-level-select {
+        width: auto;
+        min-width: 112px;
+        padding: 6px 24px 6px 8px;
+        font-size: 14px;
+      }
+
       .gender {
         font-size: 25px
       }
@@ -1214,7 +1221,14 @@
           const id = `#level${level}Count`;
           $(id).textContent = players.filter(p => p.level === level).length;
         });
-        $('#rosterList').innerHTML = arr.length ? arr.map(p => `<div class="player"><i class="dot ${col[p.level]}"></i><span class="gender ${p.gender==='M'?'male':'female'}">${p.gender==='M'?'♂':'♀'}</span><span class="name">${esc(p.name)}</span><button class="actions edit" onclick="editPlayer(${p.id})">✎</button><button class="actions delete" onclick="deletePlayer(${p.id})">♧</button></div>`).join('') : '<div class="empty">No players match these filters.</div>'
+        $('#rosterList').innerHTML = arr.length ? arr.map(p => `<div class="player"><i class="dot ${col[p.level]}"></i><span class="gender ${p.gender==='M'?'male':'female'}">${p.gender==='M'?'♂':'♀'}</span><span class="name">${esc(p.name)}</span><select class="input player-level-select" aria-label="${esc(p.name)} level" data-player-level="${p.id}">${levels.map(level => `<option value="${level}" ${p.level === level ? 'selected' : ''}>${level}</option>`).join('')}</select><button class="actions edit" onclick="editPlayer(${p.id})">✎</button><button class="actions delete" onclick="deletePlayer(${p.id})">♧</button></div>`).join('') : '<div class="empty">No players match these filters.</div>';
+        $$('#rosterList [data-player-level]').forEach(select => select.onchange = () => {
+          const player = players.find(item => String(item.id) === select.dataset.playerLevel);
+          if (!player || !levels.includes(select.value)) return;
+          player.level = select.value;
+          save();
+          render();
+        });
       }
       window.editPlayer = id => {
         let p = players.find(x => x.id === id),
