@@ -26,6 +26,13 @@
         box-sizing: border-box
       }
 
+      html,
+      body {
+        width: 100%;
+        min-width: 320px;
+        overflow-x: hidden
+      }
+
       body {
         margin: 0;
         background: var(--bg);
@@ -476,6 +483,23 @@
         margin-left: auto
       }
 
+      .swap-player-btn {
+        padding: 6px 10px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: #fffaf2;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 800;
+        white-space: nowrap
+      }
+
+      .swap-player-btn.selected {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #fff
+      }
+
       .team-options {
         display: flex;
         gap: 12px
@@ -736,12 +760,14 @@
 
       @media(max-width:620px) {
         .shell {
-          padding: 18px 12px 120px
+          width: 100%;
+          padding: 14px 10px 108px
         }
 
         .card {
-          padding: 20px;
-          border-radius: 27px
+          min-width: 0;
+          padding: 16px;
+          border-radius: 24px
         }
 
         .brand {
@@ -767,20 +793,86 @@
         }
 
         .tabs {
-          bottom: 8px
+          bottom: 6px;
+          width: calc(100% - 12px);
+          padding: 5px;
+          grid-template-columns: repeat(5, minmax(0, 1fr))
         }
 
         .tab {
-          font-size: 12px
+          min-width: 0;
+          padding: 8px 2px;
+          font-size: clamp(9px, 2.7vw, 12px)
         }
 
         .tab span {
-          font-size: 20px
+          margin-bottom: 2px;
+          font-size: 18px
+        }
+
+        .row { gap: 8px }
+
+        .btn {
+          padding: 10px 12px;
+          font-size: 14px
+        }
+
+        .chips { gap: 6px }
+
+        .chip {
+          padding: 8px 11px;
+          font-size: 13px
+        }
+
+        #teams .card > .row:first-child .grow {
+          flex: 1 0 100%
+        }
+
+        #teams .card > .row:first-child .btn {
+          flex: 1 1 28%;
+          padding: 9px 8px;
+          font-size: 12px
+        }
+
+        .teamperson {
+          gap: 8px;
+          padding: 12px 0;
+          font-size: 16px
+        }
+
+        .swap-player-btn {
+          padding: 6px 8px;
+          font-size: 11px
+        }
+
+        .scoreboard { gap: 8px }
+
+        .score-card {
+          min-width: 0;
+          padding: 14px 8px
+        }
+
+        .match-row {
+          grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+          gap: 6px;
+          font-size: 14px
+        }
+
+        .match-team { overflow-wrap: anywhere }
+
+        .result-actions {
+          justify-content: flex-start;
+          flex-wrap: wrap
+        }
+
+        .result-actions .btn {
+          padding: 8px 10px;
+          font-size: 12px
         }
 
         .check-row {
           font-size: 18px;
-          padding: 15px
+          padding: 12px
         }
 
         .team-option {
@@ -861,6 +953,7 @@
           <div class="row"><b class="muted">Sort By</b>
             <div class="chips" id="teamSort"><button class="chip active" data-value="gender">Gender</button><button class="chip" data-value="level">Level</button></div>
           </div>
+          <p id="teamSwapStatus" class="muted" aria-live="polite">To swap players, select one player and then select a player on another team.</p>
           <div id="teamsList"></div>
         </div>
       </section>
@@ -915,6 +1008,7 @@
     <script>
       const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzZ6g2e5trib45WMxfgzEj_oTmngV2SbMiSnsXclLon1QXOs280Qg0pUC_DVLgxBwZYng/exec';
       let dataSource = 'sheet';
+      let matchStateSaveTimeout = null;
       let players = [];
       let gender = 'M',
         level = 'Learning',
@@ -924,11 +1018,15 @@
         teamSort = 'gender',
         showLevels = true,
         teamCount = 2,
-        teams = [];
+        teams = [],
+        swapSelection = null;
       let timerSeconds = 420,
         timerDuration = 420,
         timerRunning = false,
         timerInterval = null,
+        timerAudioContext = null,
+        timerBellInterval = null,
+        timerBellPulses = 0,
         matchScores = [0, 0],
         selectedTeam = 0,
         timerEndAt = null,
@@ -1001,9 +1099,16 @@
           dataSource = 'sheet';
           const sheetTeams = Array.isArray(data) ? null : (data.teams || data.teamList);
           const restoredFromSheet = restoreTeamsFromSheet(sheetTeams);
+          if (Array.isArray(sheetTeams) && sheetTeams.length === 0) {
+            teams = [];
+            swapSelection = null;
+            persistMatchState(false);
+          }
+          if (data.matchState && typeof data.matchState === 'object') loadMatchState(data.matchState);
           if (!restoredFromSheet && Number.isFinite(data.teamCount)) teamCount = Math.max(2, Math.min(4, data.teamCount));
           if (typeof data.teamsLocked === 'boolean') teamsLocked = data.teamsLocked;
           if (Number.isFinite(data.roundRobinCycles)) roundRobinCycles = Math.max(1, Math.min(3, data.roundRobinCycles));
+          persistMatchState(false);
           if (restoredFromSheet && !roundRobin.length) generateRoundRobin(true);
           render();
         } catch (error) {
@@ -1036,6 +1141,46 @@
         } catch (error) {
           console.warn('Google Sheet save failed; local browser data was kept.', error);
         }
+      }
+
+      function matchStateForSheet() {
+        return {
+          timerSeconds,
+          timerDuration,
+          timerRunning,
+          timerEndAt,
+          matchScores,
+          selectedTeam,
+          teamCount,
+          roundRobin,
+          matchResults,
+          liveMatchId,
+          liveScoresByMatch,
+          roundRobinCycles
+        };
+      }
+
+      async function saveMatchStateToSheet(keepalive = false) {
+        if (!sheetConfigured() || dataSource !== 'sheet') return;
+        try {
+          await fetch(SHEET_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ matchState: matchStateForSheet() }),
+            keepalive
+          });
+        } catch (error) {
+          console.warn('Match state save to Google Sheet failed.', error);
+        }
+      }
+
+      function queueMatchStateSave() {
+        if (!sheetConfigured() || dataSource !== 'sheet') return;
+        clearTimeout(matchStateSaveTimeout);
+        matchStateSaveTimeout = setTimeout(() => {
+          matchStateSaveTimeout = null;
+          saveMatchStateToSheet();
+        }, 300);
       }
 
       function esc(s) {
@@ -1151,6 +1296,7 @@
 
       function makeTeams() {
         if (teamsLocked) return;
+        swapSelection = null;
         const arr = players.filter(p => p.in);
         let best = null,
           bestScore = Infinity;
@@ -1184,8 +1330,47 @@
             }
             return a.name.localeCompare(b.name);
           });
-          return `<div class="team"><div class="teamhead ${colors[i%4]}"><h3>Team ${names[i]}</h3><b>${t.length} players</b><div style="margin-top:8px">${levels.map(l=>`<span style="margin-right:12px"><i class="dot ${col[l]}" style="border:2px solid #fff"></i>${t.filter(p=>p.level===l).length}</span>`).join('')}</div></div><div class="teambody">${sorted.map(p=>`<div class="teamperson"><i class="dot ${col[p.level]}" style="display:${showLevels?'inline-block':'none'}"></i><span>${esc(p.name)}</span><span class="gender ${p.gender==='M'?'male':'female'}">${p.gender==='M'?'♂':'♀'}</span></div>`).join('')}</div></div>`;
+          return `<div class="team"><div class="teamhead ${colors[i%4]}"><h3>Team ${names[i]}</h3><b>${t.length} players</b><div style="margin-top:8px">${levels.map(l=>`<span style="margin-right:12px"><i class="dot ${col[l]}" style="border:2px solid #fff"></i>${t.filter(p=>p.level===l).length}</span>`).join('')}</div></div><div class="teambody">${sorted.map(p=>{const selected=swapSelection?.playerId===p.id&&swapSelection?.teamIndex===i;return `<div class="teamperson"><i class="dot ${col[p.level]}" style="display:${showLevels?'inline-block':'none'}"></i><span>${esc(p.name)}</span><span class="gender ${p.gender==='M'?'male':'female'}">${p.gender==='M'?'♂':'♀'}</span><button type="button" class="swap-player-btn ${selected?'selected':''}" data-swap-player="${p.id}" data-swap-team="${i}" ${teamsLocked?'disabled':''}>${selected?'Selected':'⇄ Swap'}</button></div>`}).join('')}</div></div>`;
         }).join('') : '<div class="empty">Check-in players, then press Reshuffle.</div>'
+        $('#teamSwapStatus').textContent = teamsLocked
+          ? 'Teams are locked. Unlock Teams to swap members.'
+          : swapSelection
+          ? `Selected ${swapSelection.playerName} from Team ${names[swapSelection.teamIndex]}. Select a player on another team to swap, or select this player again to cancel.`
+          : 'To swap players, select one player and then select a player on another team.';
+        $$('#teamsList [data-swap-player]').forEach(button => button.onclick = () => {
+          if (teamsLocked) return;
+          const playerId = Number(button.dataset.swapPlayer);
+          const teamIndex = Number(button.dataset.swapTeam);
+          const player = teams[teamIndex]?.find(member => member.id === playerId);
+          if (!player) return;
+          if (!swapSelection) {
+            swapSelection = { playerId, playerName: player.name, teamIndex };
+            renderTeams();
+            return;
+          }
+          if (swapSelection.playerId === playerId && swapSelection.teamIndex === teamIndex) {
+            swapSelection = null;
+            renderTeams();
+            return;
+          }
+          if (swapSelection.teamIndex === teamIndex) {
+            $('#teamSwapStatus').textContent = 'Choose a player from a different team to complete the swap.';
+            return;
+          }
+          const first = teams[swapSelection.teamIndex].findIndex(member => member.id === swapSelection.playerId);
+          const second = teams[teamIndex].findIndex(member => member.id === playerId);
+          if (first < 0 || second < 0) return;
+          const teamNames = ['Red', 'Blue', 'Yellow', 'Purple'];
+          const firstPlayer = teams[swapSelection.teamIndex][first];
+          const secondPlayer = teams[teamIndex][second];
+          const message = `Swap ${firstPlayer.name} from Team ${teamNames[swapSelection.teamIndex]} with ${secondPlayer.name} from Team ${teamNames[teamIndex]}?`;
+          if (!confirm(message)) return;
+          [teams[swapSelection.teamIndex][first], teams[teamIndex][second]] = [teams[teamIndex][second], teams[swapSelection.teamIndex][first]];
+          swapSelection = null;
+          persistMatchState();
+          if (teamsLocked) savePlayersToSheet('lock');
+          renderTeams();
+        });
       }
 
       function renderDash() {
@@ -1196,7 +1381,7 @@
         $('#dashStats').innerHTML = levels.map(l => `<div class="stat"><span><i class="dot ${col[l]}"></i>${l}</span><strong>${ins.filter(p=>p.level===l).length}</strong></div>`).join('')
       }
 
-      function persistMatchState() {
+      function persistMatchState(syncToSheet = true) {
         try {
           localStorage.setItem(MATCH_STORAGE_KEY, JSON.stringify({
             timerSeconds,
@@ -1217,26 +1402,29 @@
         } catch (error) {
           console.warn('Match state could not be saved.', error);
         }
+        if (syncToSheet) queueMatchStateSave();
       }
 
-      function loadMatchState() {
+      function loadMatchState(savedOverride = null) {
         try {
-          const saved = JSON.parse(localStorage.getItem(MATCH_STORAGE_KEY) || 'null');
+          const saved = savedOverride || JSON.parse(localStorage.getItem(MATCH_STORAGE_KEY) || 'null');
           if (!saved) return;
-          timerDuration = Number.isFinite(saved.timerDuration) ? saved.timerDuration : 420;
-          timerSeconds = Number.isFinite(saved.timerSeconds) ? saved.timerSeconds : timerDuration;
-          timerRunning = Boolean(saved.timerRunning);
+          clearInterval(timerInterval);
+          timerInterval = null;
+          if (Number.isFinite(saved.timerDuration)) timerDuration = saved.timerDuration;
+          if (Number.isFinite(saved.timerSeconds)) timerSeconds = saved.timerSeconds;
+          timerRunning = typeof saved.timerRunning === 'boolean' ? saved.timerRunning : timerRunning;
           timerEndAt = Number.isFinite(saved.timerEndAt) ? saved.timerEndAt : null;
-          matchScores = Array.isArray(saved.matchScores) ? [Number(saved.matchScores[0]) || 0, Number(saved.matchScores[1]) || 0] : [0, 0];
-          selectedTeam = saved.selectedTeam === 1 ? 1 : 0;
-          teamCount = Number.isFinite(saved.teamCount) ? Math.max(2, Math.min(4, saved.teamCount)) : 2;
-          teams = Array.isArray(saved.teams) ? saved.teams : [];
-          roundRobin = Array.isArray(saved.roundRobin) ? saved.roundRobin : [];
-          matchResults = saved.matchResults && typeof saved.matchResults === 'object' ? saved.matchResults : {};
-          liveMatchId = saved.liveMatchId || (roundRobin[0] && roundRobin[0].id) || null;
-          liveScoresByMatch = saved.liveScoresByMatch && typeof saved.liveScoresByMatch === 'object' ? saved.liveScoresByMatch : {};
-          teamsLocked = Boolean(saved.teamsLocked);
-          roundRobinCycles = Math.max(1, Math.min(3, Number(saved.roundRobinCycles) || 1));
+          if (Array.isArray(saved.matchScores)) matchScores = [Number(saved.matchScores[0]) || 0, Number(saved.matchScores[1]) || 0];
+          if (saved.selectedTeam === 0 || saved.selectedTeam === 1) selectedTeam = saved.selectedTeam;
+          if (Number.isFinite(saved.teamCount)) teamCount = Math.max(2, Math.min(4, saved.teamCount));
+          if (Array.isArray(saved.teams)) teams = saved.teams;
+          if (Array.isArray(saved.roundRobin)) roundRobin = saved.roundRobin;
+          if (saved.matchResults && typeof saved.matchResults === 'object') matchResults = saved.matchResults;
+          if (Object.prototype.hasOwnProperty.call(saved, 'liveMatchId')) liveMatchId = saved.liveMatchId;
+          if (saved.liveScoresByMatch && typeof saved.liveScoresByMatch === 'object') liveScoresByMatch = saved.liveScoresByMatch;
+          if (typeof saved.teamsLocked === 'boolean') teamsLocked = saved.teamsLocked;
+          if (Number.isFinite(saved.roundRobinCycles)) roundRobinCycles = Math.max(1, Math.min(3, saved.roundRobinCycles));
           if (liveMatchId && !liveScoresByMatch[liveMatchId]) liveScoresByMatch[liveMatchId] = [...matchScores];
           if (timerRunning && timerEndAt) {
             timerSeconds = Math.max(0, Math.ceil((timerEndAt - Date.now()) / 1000));
@@ -1245,6 +1433,8 @@
               timerRunning = false;
               timerEndAt = null;
             }
+          } else if (timerRunning) {
+            timerRunning = false;
           }
         } catch (error) {
           console.warn('Saved match state could not be loaded.', error);
@@ -1277,15 +1467,71 @@
         event.returnValue = '';
       });
 
+      window.addEventListener('pagehide', () => {
+        clearTimeout(matchStateSaveTimeout);
+        matchStateSaveTimeout = null;
+        saveMatchStateToSheet(true);
+      });
+
       function updateTimerFromClock() {
         if (!timerRunning || !timerEndAt) return;
         const next = Math.max(0, Math.ceil((timerEndAt - Date.now()) / 1000));
         if (next !== timerSeconds) {
           timerSeconds = next;
-          persistMatchState();
+          persistMatchState(false);
           renderMatch();
         }
-        if (next === 0) stopTimer();
+        if (next === 0) {
+          stopTimer();
+          startTimerAlarm();
+          renderMatch();
+        }
+      }
+
+      function prepareTimerAudio() {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        if (!timerAudioContext) timerAudioContext = new AudioContextClass();
+        if (timerAudioContext.state === 'suspended') timerAudioContext.resume().catch(() => {});
+      }
+
+      function playTimerBellTone() {
+        if (!timerAudioContext || timerAudioContext.state !== 'running') return;
+        const now = timerAudioContext.currentTime;
+        const gain = timerAudioContext.createGain();
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.18, now + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.75);
+        gain.connect(timerAudioContext.destination);
+        [880, 1320].forEach(frequency => {
+          const oscillator = timerAudioContext.createOscillator();
+          oscillator.type = 'sine';
+          oscillator.frequency.setValueAtTime(frequency, now);
+          oscillator.connect(gain);
+          oscillator.start(now);
+          oscillator.stop(now + 0.8);
+        });
+      }
+
+      function stopTimerAlarm() {
+        clearInterval(timerBellInterval);
+        timerBellInterval = null;
+        timerBellPulses = 0;
+      }
+
+      function startTimerAlarm() {
+        if (!timerAudioContext) return;
+        stopTimerAlarm();
+        playTimerBellTone();
+        timerBellInterval = setInterval(() => {
+          timerBellPulses++;
+          if (timerBellPulses >= 6) {
+            stopTimerAlarm();
+            if (timerSeconds === 0) $('#timerStatus').textContent = 'Time is up';
+            return;
+          }
+          playTimerBellTone();
+        }, 850);
       }
 
       function resumeTimer() {
@@ -1316,7 +1562,7 @@
         if (!display) return;
         display.textContent = formatTime(timerSeconds);
         display.classList.toggle('warning', timerSeconds <= 60 && timerSeconds > 0);
-        $('#timerStatus').textContent = timerRunning ? 'Match in progress' : timerSeconds === 0 ? 'Time is up' : 'Ready to start';
+        $('#timerStatus').textContent = timerRunning ? 'Match in progress' : timerSeconds === 0 ? (timerBellInterval ? 'Time is up — ringing' : 'Time is up') : 'Ready to start';
         $('#timerToggle').textContent = timerRunning ? '⏸ Pause' : timerSeconds === 0 ? '▶ Start Again' : '▶ Start';
         $('#durationInput').disabled = timerRunning;
         const liveMatch = roundRobin.find(m => m.id === liveMatchId) || roundRobin[0] || null;
@@ -1470,6 +1716,8 @@
       }
 
       function startTimer() {
+        stopTimerAlarm();
+        prepareTimerAudio();
         if (timerSeconds <= 0) timerSeconds = timerDuration;
         timerEndAt = Date.now() + timerSeconds * 1000;
         timerRunning = true;
@@ -1506,7 +1754,8 @@
         b.classList.add('active');
         $$('.section').forEach(x => x.classList.remove('active'));
         $('#' + b.dataset.tab).classList.add('active');
-        if ((b.dataset.tab === 'teams' || b.dataset.tab === 'match') && !teams.length) makeTeams()
+        if (b.dataset.tab === 'teams') renderTeams();
+        if (b.dataset.tab === 'match') renderMatch();
       });
       chips('#genderChips', v => gender = v);
       chips('#levelChips', v => level = v);
@@ -1544,6 +1793,7 @@
           : 'Lock Teams? Team count and reshuffle will be disabled. Latecomers will not reshuffle existing players.';
         if (!confirm(message)) return;
         teamsLocked = !teamsLocked;
+        swapSelection = null;
         persistMatchState();
         savePlayersToSheet(teamsLocked ? 'lock' : 'unlock');
         render();
@@ -1576,11 +1826,15 @@
         renderMatch();
       };
       $('#timerToggle').onclick = () => timerRunning ? stopTimer() || renderMatch() : startTimer();
-      $('#timerReset').onclick = () => {
+      $('#timerReset').onclick = async () => {
         stopTimer();
+        stopTimerAlarm();
         timerSeconds = timerDuration;
-        persistMatchState();
+        clearTimeout(matchStateSaveTimeout);
+        matchStateSaveTimeout = null;
+        persistMatchState(false);
         renderMatch();
+        await saveMatchStateToSheet();
       };
       $('#scoreReset').onclick = () => {
         matchScores = [0, 0];
