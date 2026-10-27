@@ -214,6 +214,25 @@
         color: var(--ink)
       }
 
+      .filters .chip b {
+        display: inline-block;
+        min-width: 24px;
+        margin-left: 5px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: #888;
+        color: #fff;
+        text-align: center;
+        font-size: .85em
+      }
+
+      #genderMaleCount { background: var(--blue) }
+      #genderFemaleCount { background: var(--pink) }
+      #levelAdvancedCount { background: var(--red) }
+      #levelIntermediateCount { background: var(--orange) }
+      #levelAmateurCount { background: var(--yellow); color: #fff }
+      #levelLearningCount { background: var(--green) }
+
       .dot {
         display: inline-block;
         width: 15px;
@@ -790,7 +809,7 @@
       <section id="roster" class="section active">
         <div class="card">
           <h2>Add to Roster</h2><input id="name" class="input" placeholder="Player Name" />
-          <div class="chips" id="genderChips"><button class="chip active" data-value="M">♂ Male</button><button class="chip" data-value="F">♀ Female</button></div>
+          <div class="chips" id="genderChips"><button class="chip active" data-value="M"><span class="gender male">♂</span> Male</button><button class="chip" data-value="F"><span class="gender female">♀</span> Female</button></div>
           <div class="chips" id="levelChips"><button class="chip" data-value="Advanced"><i class="dot advanced"></i>Advanced</button><button class="chip" data-value="Intermediate"><i class="dot intermediate"></i>Intermediate</button><button class="chip" data-value="Amateur"><i class="dot amateur"></i>Amateur</button><button class="chip active" data-value="Learning"><i class="dot learning"></i>Learning</button></div><button id="addBtn" class="btn primary" style="width:100%;font-size:20px">＋ Add</button>
         </div>
         <div class="card">
@@ -799,9 +818,9 @@
           </div>
           <div class="filters">
             <div class="muted">Gender</div>
-            <div class="chips" id="genderFilter"><button class="chip active" data-value="all">All</button><button class="chip" data-value="M">♂ Male</button><button class="chip" data-value="F">♀ Female</button></div>
+            <div class="chips" id="genderFilter"><button class="chip active" data-value="all">All <b id="genderAllCount">0</b></button><button class="chip" data-value="M"><span class="male">♂</span> Male <b id="genderMaleCount">0</b></button><button class="chip" data-value="F"><span class="female">♀</span> Female <b id="genderFemaleCount">0</b></button></div>
             <div class="muted">Level</div>
-            <div class="chips" id="levelFilter"><button class="chip active" data-value="all">All</button><button class="chip" data-value="Advanced">Advanced</button><button class="chip" data-value="Intermediate">Intermediate</button><button class="chip" data-value="Amateur">Amateur</button><button class="chip" data-value="Learning">Learning</button></div>
+            <div class="chips" id="levelFilter"><button class="chip active" data-value="all">All <b id="levelAllCount">0</b></button><button class="chip" data-value="Advanced">Advanced <b id="levelAdvancedCount">0</b></button><button class="chip" data-value="Intermediate">Intermediate <b id="levelIntermediateCount">0</b></button><button class="chip" data-value="Amateur">Amateur <b id="levelAmateurCount">0</b></button><button class="chip" data-value="Learning">Learning <b id="levelLearningCount">0</b></button></div>
             <div class="muted">Sort By</div>
             <div class="chips" id="sortChips"><button class="chip active" data-value="name">Name</button><button class="chip" data-value="gender">Gender</button><button class="chip" data-value="level">Level</button></div>
           </div>
@@ -837,7 +856,7 @@
           <hr style="border:0;border-top:2px solid var(--line);margin:25px 0"><button class="btn outline" id="latecomer">♙ Add Latecomer</button>
           <hr style="border:0;border-top:2px solid var(--line);margin:25px 0">
           <div class="row"><b class="muted">Number of Teams</b><span id="teamLockStatus" class="muted"></span>
-            <div class="chips" id="teamCountChips"><button class="chip active" data-value="2">2</button><button class="chip" data-value="3">3</button><button class="chip" data-value="4">4</button></div><button class="btn primary" id="reshuffle">⟳ Reshuffle</button>
+            <div class="chips" id="teamCountChips"><button class="chip active" data-value="2">2</button><button class="chip" data-value="3">3</button><button class="chip" data-value="4">4</button></div><button class="btn primary" id="reshuffle">⟳ Reshuffle</button><button class="btn outline" id="clearTeams">✕ Clear</button>
           </div>
           <div class="row"><b class="muted">Sort By</b>
             <div class="chips" id="teamSort"><button class="chip active" data-value="gender">Gender</button><button class="chip" data-value="level">Level</button></div>
@@ -996,20 +1015,23 @@
         }
       }
 
-      async function savePlayersToSheet() {
+      async function savePlayersToSheet(teamAction = null) {
         if (!sheetConfigured()) return;
         try {
+          const payload = { players };
+          if (teamAction === 'lock') {
+            payload.teams = teamListForSheet();
+            payload.teamCount = teamCount;
+            payload.teamsLocked = true;
+          } else if (teamAction === 'unlock') {
+            payload.teams = [];
+            payload.teamCount = teamCount;
+            payload.teamsLocked = false;
+          }
           await fetch(SHEET_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              players,
-              teams: teamListForSheet(),
-              teamList: teamListForSheet(),
-              teamCount,
-              teamsLocked,
-              roundRobinCycles
-            })
+            body: JSON.stringify(payload)
           });
         } catch (error) {
           console.warn('Google Sheet save failed; local browser data was kept.', error);
@@ -1039,6 +1061,14 @@
         let arr = players.filter(p => (gf === 'all' || p.gender === gf) && (lf === 'all' || p.level === lf));
         arr.sort((a, b) => (a[sort] || '').localeCompare(b[sort] || ''));
         $('#rosterCount').textContent = players.length + ' players';
+        $('#genderAllCount').textContent = players.length;
+        $('#genderMaleCount').textContent = players.filter(p => p.gender === 'M').length;
+        $('#genderFemaleCount').textContent = players.filter(p => p.gender === 'F').length;
+        $('#levelAllCount').textContent = players.length;
+        levels.forEach(level => {
+          const id = `#level${level}Count`;
+          $(id).textContent = players.filter(p => p.level === level).length;
+        });
         $('#rosterList').innerHTML = arr.length ? arr.map(p => `<div class="player"><i class="dot ${col[p.level]}"></i><span class="gender ${p.gender==='M'?'male':'female'}">${p.gender==='M'?'♂':'♀'}</span><span class="name">${esc(p.name)}</span><button class="actions edit" onclick="editPlayer(${p.id})">✎</button><button class="actions delete" onclick="deletePlayer(${p.id})">♧</button></div>`).join('') : '<div class="empty">No players match these filters.</div>'
       }
       window.editPlayer = id => {
@@ -1155,7 +1185,7 @@
             return a.name.localeCompare(b.name);
           });
           return `<div class="team"><div class="teamhead ${colors[i%4]}"><h3>Team ${names[i]}</h3><b>${t.length} players</b><div style="margin-top:8px">${levels.map(l=>`<span style="margin-right:12px"><i class="dot ${col[l]}" style="border:2px solid #fff"></i>${t.filter(p=>p.level===l).length}</span>`).join('')}</div></div><div class="teambody">${sorted.map(p=>`<div class="teamperson"><i class="dot ${col[p.level]}" style="display:${showLevels?'inline-block':'none'}"></i><span>${esc(p.name)}</span><span class="gender ${p.gender==='M'?'male':'female'}">${p.gender==='M'?'♂':'♀'}</span></div>`).join('')}</div></div>`;
-        }).join('') : '<div class="empty">Check in players, then press Reshuffle.</div>'
+        }).join('') : '<div class="empty">Check-in players, then press Reshuffle.</div>'
       }
 
       function renderDash() {
@@ -1266,13 +1296,13 @@
       function renderTeamLockState() {
         const lockButton = $('#teamLock');
         if (!lockButton) return;
-        lockButton.textContent = teamsLocked ? '🔒 Teams Locked' : '🔓 Lock Teams';
-        $('#teamLockStatus').textContent = teamsLocked ? 'Locked : Team count and reshuffle disabled' : 'Unlocked';
+        lockButton.textContent = teamsLocked ? '🔒 Unlock Teams' : '🔓 Lock Teams';
+        $('#teamLockStatus').textContent = teamsLocked ? 'Locked' : 'Unlocked';
         $('#reshuffle').disabled = teamsLocked;
-        $('#generateRoundRobin').disabled = teamsLocked;
-        $('#roundRobinCycles').disabled = teamsLocked;
+        $('#generateRoundRobin').disabled = false;
         $('#roundRobinCycles').value = String(roundRobinCycles);
         $$('#teamCountChips .chip').forEach(button => button.disabled = teamsLocked);
+        $('#clearTeams').disabled = teamsLocked;
       }
 
       function formatTime(totalSeconds) {
@@ -1325,8 +1355,7 @@
       }
 
       function generateRoundRobin(force = false, confirmReset = false) {
-        if (teamsLocked && !force) return;
-        if (confirmReset && Object.keys(matchResults).length && !confirm('Regenerate the schedule and reset all standings and match results?')) return;
+        if (confirmReset && !confirm('Regenerate the schedule and reset all standings and match results?')) return;
         const count = Math.max(2, Math.min(4, teams.length || teamCount));
         const allMatches = [];
         for (let cycle = 0; cycle < roundRobinCycles; cycle++) {
@@ -1428,7 +1457,7 @@
           if (result.a > result.b) { a.wins++; b.losses++; a.points += 3; } else if (result.b > result.a) { b.wins++; a.losses++; b.points += 3; } else { a.draws++; b.draws++; a.points++; b.points++; }
         });
         table.sort((a, b) => b.points - a.points || (b.gf - b.ga) - (a.gf - a.ga) || b.gf - a.gf);
-        standingsWrap.innerHTML = `<h3 style="margin:24px 0 8px">Standings</h3><div style="overflow:auto"><table class="standings"><thead><tr><th>Team</th><th>Matches Played</th><th>Wins</th><th>Draws</th><th>Losses</th><th>Goal Difference</th><th>Pts</th></tr></thead><tbody>${table.map(row => `<tr><td><b>Team ${teamName(row.team)}</b></td><td>${row.played}</td><td>${row.wins}</td><td>${row.draws}</td><td>${row.losses}</td><td>${row.gf - row.ga}</td><td><b>${row.points}</b></td></tr>`).join('')}</tbody></table></div>`;
+        standingsWrap.innerHTML = `<h3 style="margin:24px 0 8px">Standings</h3><div style="overflow:auto"><table class="standings"><thead><tr><th>Team</th><th>Matches Played</th><th>Wins</th><th>Draws</th><th>Losses</th><th>Goal Difference</th><th>Points</th></tr></thead><tbody>${table.map(row => `<tr><td><b>Team ${teamName(row.team)}</b></td><td>${row.played}</td><td>${row.wins}</td><td>${row.draws}</td><td>${row.losses}</td><td>${row.gf - row.ga}</td><td><b>${row.points}</b></td></tr>`).join('')}</tbody></table></div>`;
       }
 
       function stopTimer() {
@@ -1516,8 +1545,16 @@
         if (!confirm(message)) return;
         teamsLocked = !teamsLocked;
         persistMatchState();
-        save();
+        savePlayersToSheet(teamsLocked ? 'lock' : 'unlock');
+        render();
         renderTeamLockState();
+      };
+      $('#clearTeams').onclick = () => {
+        if (teamsLocked) return;
+        if (!confirm('Clear the team list? The schedule and results will stay unchanged.')) return;
+        teams = [];
+        persistMatchState();
+        renderTeams();
       };
       $('#toggleLevels').onclick = () => {
         showLevels = !showLevels;
@@ -1591,6 +1628,7 @@
         });
         persistMatchState();
         save();
+        if (teamsLocked) savePlayersToSheet('lock');
         render();
       };
       loadMatchState();
