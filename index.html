@@ -507,6 +507,22 @@
         color: #fff
       }
 
+      .remove-team-member-btn {
+        padding: 6px 9px;
+        border: 1px solid #efc5c5;
+        border-radius: 18px;
+        background: #fff5f5;
+        color: #b42318;
+        font-size: 13px;
+        font-weight: 800;
+        white-space: nowrap
+      }
+
+      .remove-team-member-btn:disabled {
+        opacity: .45;
+        cursor: not-allowed
+      }
+
       .team-options {
         display: flex;
         gap: 12px
@@ -848,6 +864,11 @@
         }
 
         .swap-player-btn {
+          padding: 6px 8px;
+          font-size: 11px
+        }
+
+        .remove-team-member-btn {
           padding: 6px 8px;
           font-size: 11px
         }
@@ -1345,13 +1366,26 @@
             }
             return a.name.localeCompare(b.name);
           });
-          return `<div class="team"><div class="teamhead ${colors[i%4]}"><h3>Team ${names[i]}</h3><b>${t.length} players</b><div style="margin-top:8px">${levels.map(l=>`<span style="margin-right:12px"><i class="dot ${col[l]}" style="border:2px solid #fff"></i>${t.filter(p=>p.level===l).length}</span>`).join('')}</div></div><div class="teambody">${sorted.map(p=>{const selected=swapSelection?.playerId===p.id&&swapSelection?.teamIndex===i;return `<div class="teamperson"><i class="dot ${col[p.level]}" style="display:${showLevels?'inline-block':'none'}"></i><span>${esc(p.name)}</span><span class="gender ${p.gender==='M'?'male':'female'}">${p.gender==='M'?'♂':'♀'}</span><button type="button" class="swap-player-btn ${selected?'selected':''}" data-swap-player="${p.id}" data-swap-team="${i}" ${teamsLocked?'disabled':''}>${selected?'Selected':'⇄ Swap'}</button></div>`}).join('')}</div></div>`;
+          return `<div class="team"><div class="teamhead ${colors[i%4]}"><h3>Team ${names[i]}</h3><b>${t.length} players</b><div style="margin-top:8px">${levels.map(l=>`<span style="margin-right:12px"><i class="dot ${col[l]}" style="border:2px solid #fff"></i>${t.filter(p=>p.level===l).length}</span>`).join('')}</div></div><div class="teambody">${sorted.map(p=>{const selected=swapSelection?.playerId===p.id&&swapSelection?.teamIndex===i;return `<div class="teamperson"><i class="dot ${col[p.level]}" style="display:${showLevels?'inline-block':'none'}"></i><span>${esc(p.name)}</span><span class="gender ${p.gender==='M'?'male':'female'}">${p.gender==='M'?'♂':'♀'}</span><button type="button" class="swap-player-btn ${selected?'selected':''}" data-swap-player="${p.id}" data-swap-team="${i}" ${teamsLocked?'disabled':''}>${selected?'Selected':'⇄ Swap'}</button><button type="button" class="remove-team-member-btn" data-remove-player="${p.id}" data-remove-team="${i}" ${teamsLocked?'disabled':''} aria-label="Remove ${esc(p.name)} from Team ${names[i]}">Remove</button></div>`}).join('')}</div></div>`;
         }).join('') : '<div class="empty">Check-in players, then press Reshuffle.</div>'
         $('#teamSwapStatus').textContent = teamsLocked
-          ? 'Teams are locked. Unlock Teams to swap members.'
+          ? 'Teams are locked. Unlock Teams to swap or remove members.'
           : swapSelection
           ? `Selected ${swapSelection.playerName} from Team ${names[swapSelection.teamIndex]}. Select a player on another team to swap, or select this player again to cancel.`
           : 'To swap players, select one player and then select a player on another team.';
+        $$('#teamsList [data-remove-player]').forEach(button => button.onclick = () => {
+          if (teamsLocked) return;
+          const playerId = Number(button.dataset.removePlayer);
+          const teamIndex = Number(button.dataset.removeTeam);
+          const player = teams[teamIndex]?.find(member => member.id === playerId);
+          if (!player) return;
+          if (!confirm(`Remove ${player.name} from Team ${names[teamIndex]}? The player will remain in the roster.`)) return;
+          teams[teamIndex] = teams[teamIndex].filter(member => member.id !== playerId);
+          if (swapSelection?.playerId === playerId || swapSelection?.teamIndex === teamIndex) swapSelection = null;
+          persistMatchState();
+          renderTeams();
+          renderDash();
+        });
         $$('#teamsList [data-swap-player]').forEach(button => button.onclick = () => {
           if (teamsLocked) return;
           const playerId = Number(button.dataset.swapPlayer);
